@@ -1,0 +1,162 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: Rule file
+type: object
+additionalProperties: false
+required:
+  - name
+  - filter
+  - action
+  - branch
+  - commit_message
+  - pr
+properties:
+  name:
+    type: string
+    minLength: 1
+  filter:
+    $ref: "#/definitions/filter"
+  subset:
+    type: object
+    additionalProperties: false
+    required: [column, equals]
+    properties:
+      column:
+        type: string
+      equals:
+        type: string
+  action:
+    $ref: "#/definitions/action"
+  branch:
+    type: string
+    minLength: 1
+  commit_message:
+    type: string
+    minLength: 1
+  pr:
+    type: object
+    additionalProperties: false
+    required: [title, body_template]
+    properties:
+      title:
+        type: string
+        minLength: 1
+      body_template:
+        type: string
+        minLength: 1
+      description:
+        type: string
+
+definitions:
+  filter:
+    oneOf:
+      - $ref: "#/definitions/filter_path_exists"
+      - $ref: "#/definitions/filter_path_absent"
+      - $ref: "#/definitions/filter_content_match"
+      - $ref: "#/definitions/filter_content_absent"
+
+  filter_path_exists:
+    type: object
+    additionalProperties: false
+    required: [type, path]
+    properties:
+      type: { const: path_exists }
+      path: { type: string, minLength: 1 }
+
+  filter_path_absent:
+    type: object
+    additionalProperties: false
+    required: [type, path]
+    properties:
+      type: { const: path_absent }
+      path: { type: string, minLength: 1 }
+
+  filter_content_match:
+    type: object
+    additionalProperties: false
+    required: [type, path, pattern]
+    properties:
+      type: { const: content_match }
+      path: { type: string, minLength: 1 }
+      pattern: { type: string, minLength: 1 }
+
+  filter_content_absent:
+    type: object
+    additionalProperties: false
+    required: [type, path, pattern]
+    properties:
+      type: { const: content_absent }
+      path: { type: string, minLength: 1 }
+      pattern: { type: string, minLength: 1 }
+
+  action:
+    oneOf:
+      - $ref: "#/definitions/action_add_file"
+      - $ref: "#/definitions/action_overwrite_file"
+      - $ref: "#/definitions/action_regex_replace"
+      - $ref: "#/definitions/action_anchor_insert"
+      - $ref: "#/definitions/action_block_insert"
+
+  action_add_file:
+    type: object
+    additionalProperties: false
+    required: [type, path, source_template_path]
+    properties:
+      type: { const: add_file }
+      path: { type: string, minLength: 1 }
+      source_template_path: { type: string, minLength: 1 }
+      overwrite: { type: boolean }
+
+  action_overwrite_file:
+    type: object
+    additionalProperties: false
+    required: [type, path, source_template_path]
+    properties:
+      type: { const: overwrite_file }
+      path: { type: string, minLength: 1 }
+      source_template_path: { type: string, minLength: 1 }
+
+  action_regex_replace:
+    type: object
+    additionalProperties: false
+    required: [type, path, pattern, replacement]
+    properties:
+      type: { const: regex_replace }
+      path: { type: string, minLength: 1 }
+      pattern: { type: string, minLength: 1 }
+      replacement: { type: string }
+      require_match: { type: boolean }
+
+  action_anchor_insert:
+    type: object
+    additionalProperties: false
+    required: [type, path, anchor_pattern, lines]
+    properties:
+      type: { const: anchor_insert }
+      path: { type: string, minLength: 1 }
+      anchor_pattern: { type: string, minLength: 1 }
+      lines:
+        type: array
+        items: { type: string }
+        minItems: 1
+      position:
+        enum: [before, after]
+      skip_if_present: { type: string }
+      require_anchor: { type: boolean }
+
+  action_block_insert:
+    type: object
+    additionalProperties: false
+    required: [type, path, start_pattern, end_pattern, lines]
+    properties:
+      type: { const: block_insert }
+      path: { type: string, minLength: 1 }
+      start_pattern: { type: string, minLength: 1 }
+      end_pattern: { type: string, minLength: 1 }
+      lines:
+        type: array
+        items: { type: string }
+        minItems: 1
+      position:
+        enum: [before, after]
+      require_match: { type: boolean }
+      skip_if_present: { type: string }

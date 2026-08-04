@@ -1,0 +1,22 @@
+name: bump-workflow-v2-to-v3
+filter:
+  type: content_match
+  path: .github/workflows/ci.yml
+  pattern: "org/central-workflow@v2"
+subset:
+  column: team
+  equals: platform
+action:
+  type: regex_replace
+  path: .github/workflows/ci.yml
+  pattern: 'uses:\s*org/central-workflow@v2(\.\d+)?'
+  replacement: 'uses: org/central-workflow@v3'
+  require_match: true
+branch: chore/bump-workflow-v3
+commit_message: "chore: bump central workflow to v3"
+pr:
+  title: "Bump central workflow to v3"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Bumps the central-workflow reusable workflow reference from v2 to v3.
+    Re-running this rule is a no-op once the reference no longer matches v2.

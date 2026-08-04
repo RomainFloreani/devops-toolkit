@@ -1,0 +1,35 @@
+name: add-security-scan-job
+filter:
+  type: path_exists
+  path: .github/workflows/ci.yml
+subset:
+  column: team
+  equals: platform
+action:
+  type: block_insert
+  path: .github/workflows/ci.yml
+  # Anchor on structure, never on a raw line number: find `jobs:`, then the
+  # first 2-space-indented job key after it -- whatever that job happens to
+  # be called varies per repo, so we match the *shape* of a job key line.
+  start_pattern: "^jobs:"
+  end_pattern: "^  [A-Za-z0-9_-]+:\\s*$"
+  position: before
+  lines:
+    - "  security-scan:"
+    - "    runs-on: ubuntu-latest"
+    - "    steps:"
+    - "      - uses: actions/checkout@v4"
+    - "      - run: make security-scan"
+  # idempotency guard: if this job already exists, skip.
+  skip_if_present: "security-scan:"
+  require_match: true
+branch: chore/add-security-scan-job
+commit_message: "ci: add security-scan job"
+pr:
+  title: "Add security-scan job to CI workflow"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Inserts a new security-scan job as the first job under `jobs:` in
+    .github/workflows/ci.yml, anchored on the first job-key line rather than
+    a fixed line number so it works regardless of which job comes first in
+    a given repo. Idempotent via skip_if_present.

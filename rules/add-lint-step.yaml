@@ -1,0 +1,29 @@
+name: add-lint-step-after-checkout
+filter:
+  type: content_match
+  path: .github/workflows/ci.yml
+  pattern: "actions/checkout@v4"
+subset:
+  column: team
+  equals: platform
+action:
+  type: anchor_insert
+  path: .github/workflows/ci.yml
+  anchor_pattern: "uses: actions/checkout@v4"
+  position: after
+  lines:
+    - "      - name: Lint"
+    - "        run: make lint"
+  # idempotency guard: if this string is already in the file, skip -- the
+  # step was already inserted by a previous run of this rule.
+  skip_if_present: "name: Lint"
+  require_anchor: true
+branch: chore/add-lint-step
+commit_message: "ci: add lint step after checkout"
+pr:
+  title: "Add lint step to CI workflow"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Inserts a `make lint` step immediately after the checkout step in
+    .github/workflows/ci.yml. Idempotent via skip_if_present: re-running
+    against a repo that already has the step is a no-op.
