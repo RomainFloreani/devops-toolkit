@@ -8,6 +8,7 @@ particular `gh` CLI stderr formatting.
 import json
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -104,7 +105,13 @@ def test_get_check_runs_paginates_until_short_page(monkeypatch):
 
     def fake_run(cmd, input=None, capture_output=None, text=None):
         calls.append(cmd)
-        page_value = next(a.split("=")[1] for a in cmd if a.startswith("page="))
+        # pagination must ride in the URL query string, not as a bare -f
+        # flag -- any -f/-F on `gh api` flips the request to POST, which
+        # 404s this (GET-only) endpoint.
+        assert "-f" not in cmd and "-F" not in cmd
+        url = cmd[cmd.index("api") + 1]
+        query = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)
+        page_value = query["page"][0]
         if page_value == "1":
             runs = [{"name": f"job-{i}", "status": "completed", "conclusion": "success", "started_at": "t"}
                     for i in range(100)]
@@ -116,7 +123,7 @@ def test_get_check_runs_paginates_until_short_page(monkeypatch):
     monkeypatch.setattr(subprocess, "run", fake_run)
     runs = github_client.get_check_runs("acme", "repo-a", "deadbeef")
     assert len(runs) == 101
-    assert [c for c in calls if any(a.startswith("page=") for a in c)]
+    assert len(calls) == 2
 
 
 def test_fetch_open_pr_branches_batches_and_parses_totalcount(monkeypatch):

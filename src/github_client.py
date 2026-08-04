@@ -251,9 +251,11 @@ def get_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
     runs: list[dict] = []
     page = 1
     while True:
+        # Pagination params go in the URL, not as -f/-F: gh api silently
+        # switches a GET to a POST when any -f/-F is present (unless -X GET
+        # is also passed), and POSTing this read-only endpoint 404s.
         result = _rest_call([
-            "api", f"repos/{owner}/{repo}/commits/{sha}/check-runs",
-            "-f", "per_page=100", "-f", f"page={page}",
+            "api", f"repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100&page={page}",
             "--jq", ".check_runs[] | {name, status, conclusion, started_at}",
         ])
         page_runs = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
