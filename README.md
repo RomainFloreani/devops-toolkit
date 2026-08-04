@@ -126,12 +126,22 @@ Flags:
 - `--concurrency <n>` (default 8 -- threads, not processes; GraphQL point
   cost is the real limit, not CPU)
 - `--repos-csv <path>` (default `config/repos.csv`)
+- `--skip-preflight` -- skip the local pre-commit simulation entirely. A
+  hook that would have failed (or autofixed) now surfaces downstream
+  instead of being caught here -- e.g. as a failing check on the PR once
+  opened, or a human catching it in review. No effect on `--dry-run`, which
+  never runs preflight regardless. Reach for this if preflight is slow;
+  first check whether it's a one-time cost -- `PRE_COMMIT_HOME` is pinned to
+  this toolkit's `.cache/` (gitignored, persists across runs), so hook
+  environments are only installed once per distinct `.pre-commit-config.yaml`
+  across all runs, not once per run.
 
 Per matched repo, a real run: computes the new content, runs preflight
-(simulated pre-commit against just the changed file(s); if a hook autofixes
-in place, the fixed content is substituted and preflight re-run once to
-confirm a clean pass -- a genuine validator failure skips that repo and logs
-`preflight_failed` instead of opening a PR), creates the branch off the
+(simulated pre-commit against just the changed file(s), unless
+`--skip-preflight` is set; if a hook autofixes in place, the fixed content
+is substituted and preflight re-run once to confirm a clean pass -- a
+genuine validator failure skips that repo and logs `preflight_failed`
+instead of opening a PR), creates the branch off the
 default branch tip (or reuses it if it already exists, skipping the commit
 entirely if the branch already has the target content), commits via
 `createCommitOnBranch`, and opens a PR (or reuses the existing open one from

@@ -145,7 +145,10 @@ def make_row(owner: str, repo: str, matched: bool, preflight_status: str,
     }
 
 
-def process_repo(rule: dict, owner: str, repo: str, source_branch: str, before: str | None) -> dict:
+def process_repo(
+    rule: dict, owner: str, repo: str, source_branch: str, before: str | None,
+    skip_preflight: bool = False,
+) -> dict:
     action_path = rule["action"]["path"]
     target_branch = rule["branch"]
     action_cfg = render_action_context(rule["action"], owner, repo, source_branch, target_branch)
@@ -159,21 +162,28 @@ def process_repo(rule: dict, owner: str, repo: str, source_branch: str, before: 
         return make_row(owner, repo, True, "not_run", target_branch, "", "no_change_needed")
 
     changed_files = {action_path: after}
-    pf = preflight.run_preflight(owner, repo, source_branch, changed_files)
 
-    if not pf["ok"] and not pf["fixed_files"]:
-        return make_row(owner, repo, True, "failed", target_branch, "",
-                         f"preflight_failed: {pf['output'][:500]}")
+    if skip_preflight:
+        # No local pre-commit run at all -- a hook that would have rejected
+        # this change (or autofixed it) now only surfaces downstream, e.g.
+        # in the target repo's own CI on the opened PR.
+        preflight_status = "skipped"
+    else:
+        pf = preflight.run_preflight(owner, repo, source_branch, changed_files)
 
-    preflight_status = "ok"
-    if pf["fixed_files"]:
-        changed_files.update(pf["fixed_files"])
-        pf2 = preflight.run_preflight(owner, repo, source_branch, changed_files)
-        if not pf2["ok"]:
+        if not pf["ok"] and not pf["fixed_files"]:
             return make_row(owner, repo, True, "failed", target_branch, "",
-                             f"preflight_failed_after_fix: {pf2['output'][:500]}")
-        preflight_status = "fixed"
-        after = changed_files[action_path]
+                             f"preflight_failed: {pf['output'][:500]}")
+
+        preflight_status = "ok"
+        if pf["fixed_files"]:
+            changed_files.update(pf["fixed_files"])
+            pf2 = preflight.run_preflight(owner, repo, source_branch, changed_files)
+            if not pf2["ok"]:
+                return make_row(owner, repo, True, "failed", target_branch, "",
+                                 f"preflight_failed_after_fix: {pf2['output'][:500]}")
+            preflight_status = "fixed"
+            after = changed_files[action_path]
 
     tip_sha = github_client.get_branch_tip_sha(owner, repo, source_branch)
     if tip_sha is None:
@@ -239,6 +249,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Filter + diff only, write nothing.")
     parser.add_argument("--concurrency", type=int, default=8, help="Thread pool size for the write stage.")
     parser.add_argument("--repos-csv", default="config/repos.csv", help="Path to the repo inventory CSV.")
+    parser.add_argument(
+        "--skip-preflight", action="store_true",
+        help="Skip the local pre-commit simulation before pushing. Faster, but a hook that "
+             "would have failed (or autofixed) now surfaces downstream instead of being "
+             "caught here -- has no effect on --dry-run, which never runs preflight anyway.",
+    )
     args = parser.parse_args()
 
     rule = load_rule(Path(args.rule))
@@ -301,7 +317,10 @@ def main() -> None:
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = {
-            pool.submit(process_repo, rule, owner, repo, branch, action_fetched.get((owner, repo))): (owner, repo)
+            pool.submit(
+                process_repo, rule, owner, repo, branch, action_fetched.get((owner, repo)),
+                args.skip_preflight,
+            ): (owner, repo)
             for owner, repo, branch in matched
         }
         for future in as_completed(futures):
