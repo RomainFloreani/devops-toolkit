@@ -61,6 +61,24 @@ definitions:
       - $ref: "#/definitions/filter_path_absent"
       - $ref: "#/definitions/filter_content_match"
       - $ref: "#/definitions/filter_content_absent"
+      - $ref: "#/definitions/filter_pr_open_on_branch"
+      - $ref: "#/definitions/filter_all_of"
+
+  filter_all_of:
+    type: object
+    additionalProperties: false
+    required: [type, filters]
+    properties:
+      type: { const: all_of }
+      filters:
+        type: array
+        minItems: 2
+        items: { $ref: "#/definitions/filter" }
+        description: >
+          Evaluated in order, each against only the repos that survived the
+          previous one -- e.g. [pr_open_on_branch, content_match] first
+          narrows to repos with that PR open, then checks file content only
+          on that narrowed set.
 
   filter_path_exists:
     type: object
@@ -95,6 +113,19 @@ definitions:
       type: { const: content_absent }
       path: { type: string, minLength: 1 }
       pattern: { type: string, minLength: 1 }
+
+  filter_pr_open_on_branch:
+    type: object
+    additionalProperties: false
+    required: [type, branch]
+    properties:
+      type: { const: pr_open_on_branch }
+      branch:
+        type: string
+        minLength: 1
+        description: >
+          Matches repos that currently have an open PR whose head is this
+          branch name. Not about file content -- has no `path`.
 
   action:
     oneOf:

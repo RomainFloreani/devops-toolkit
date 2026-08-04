@@ -45,6 +45,23 @@ def test_apply_filter_content_match():
     assert matched == [("o", "a", "main")]
 
 
+def test_pr_open_on_branch():
+    assert filters.pr_open_on_branch(True) is True
+    assert filters.pr_open_on_branch(False) is False
+
+
+def test_apply_filter_pr_open_on_branch():
+    repos = [
+        {"owner": "o", "repo": "a", "default_branch": "main"},
+        {"owner": "o", "repo": "b", "default_branch": "main"},
+        {"owner": "o", "repo": "c", "default_branch": "master"},
+    ]
+    fetched = {("o", "a"): True, ("o", "b"): False, ("o", "c"): True}
+    filter_cfg = {"type": "pr_open_on_branch", "branch": "DEVOPS-XXXX"}
+    matched = filters.apply_filter(filter_cfg, repos, fetched)
+    assert matched == [("o", "a", "main"), ("o", "c", "master")]
+
+
 def test_apply_filter_path_absent():
     repos = [
         {"owner": "o", "repo": "a", "default_branch": "main"},

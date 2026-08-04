@@ -28,6 +28,74 @@ TOOLKIT_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = TOOLKIT_ROOT / "rules" / "schema.yaml"
 CSV_FIELDS = ["owner", "repo", "matched", "preflight_status", "branch", "pr_url", "error"]
 
+# Action content fields that may contain per-repo Jinja placeholders
+# ({{ owner }}, {{ repo }}, {{ default_branch }}, {{ branch }}), rendered
+# once per repo before the action runs -- e.g. replacement: "autoupdate_branch:
+# {{ default_branch }}" so every repo gets its own branch name instead of one
+# fixed string shared by the whole rule.
+TEMPLATABLE_ACTION_FIELDS = {
+    "regex_replace": ["replacement"],
+    "anchor_insert": ["lines"],
+    "block_insert": ["lines"],
+}
+
+
+def render_action_context(action_cfg: dict, owner: str, repo: str, default_branch: str, branch: str) -> dict:
+    fields = TEMPLATABLE_ACTION_FIELDS.get(action_cfg["type"], [])
+    if not fields:
+        return action_cfg
+    context = {"owner": owner, "repo": repo, "default_branch": default_branch, "branch": branch}
+    rendered = dict(action_cfg)
+    for field in fields:
+        value = rendered[field]
+        if isinstance(value, list):
+            rendered[field] = [jinja2.Template(item).render(**context) for item in value]
+        else:
+            rendered[field] = jinja2.Template(value).render(**context)
+    return rendered
+
+
+def resolve_filter_matches(filter_cfg: dict, repos: list[dict]) -> list[tuple[str, str, str]]:
+    """Evaluate `filter_cfg` against `repos`, doing whichever GitHub fetch it needs.
+
+    `all_of` filters are evaluated in order, each stage only fetching for
+    repos that survived the previous one -- narrowing, not an independent
+    fetch-then-intersect, so an early cheap stage (e.g. pr_open_on_branch)
+    keeps a later expensive one (a big content_match batch) small.
+    """
+    filter_type = filter_cfg["type"]
+
+    if filter_type == "all_of":
+        candidates = repos
+        for sub_filter in filter_cfg["filters"]:
+            matched = resolve_filter_matches(sub_filter, candidates)
+            matched_keys = {(o, r) for o, r, _b in matched}
+            candidates = [row for row in candidates if (row["owner"], row["repo"]) in matched_keys]
+            if not candidates:
+                break
+        return [(row["owner"], row["repo"], row["default_branch"]) for row in candidates]
+
+    if filter_type == "pr_open_on_branch":
+        pr_state = github_client.fetch_open_pr_branches(
+            [(r["owner"], r["repo"]) for r in repos], filter_cfg["branch"],
+        )
+        return filters.apply_filter(filter_cfg, repos, pr_state)
+
+    path = filter_cfg["path"]
+    items = [(r["owner"], r["repo"], r["default_branch"], path) for r in repos]
+    fetched_raw = github_client.fetch_files_batch(items)
+    fetched = {(o, r): text for (o, r, _p), text in fetched_raw.items()}
+    return filters.apply_filter(filter_cfg, repos, fetched)
+
+
+def describe_filter(filter_cfg: dict) -> str:
+    filter_type = filter_cfg["type"]
+    if filter_type == "all_of":
+        return " AND ".join(describe_filter(f) for f in filter_cfg["filters"])
+    if filter_type == "pr_open_on_branch":
+        return f"pr_open_on_branch({filter_cfg['branch']})"
+    return f"{filter_type}({filter_cfg['path']})"
+
 
 def load_rule(rule_path: Path) -> dict:
     with open(rule_path, "r", encoding="utf-8") as f:
@@ -80,9 +148,10 @@ def make_row(owner: str, repo: str, matched: bool, preflight_status: str,
 def process_repo(rule: dict, owner: str, repo: str, source_branch: str, before: str | None) -> dict:
     action_path = rule["action"]["path"]
     target_branch = rule["branch"]
+    action_cfg = render_action_context(rule["action"], owner, repo, source_branch, target_branch)
 
     try:
-        after = actions.run_action(rule["action"], before)
+        after = actions.run_action(action_cfg, before)
     except actions.ActionError as e:
         return make_row(owner, repo, True, "not_run", target_branch, "", f"action_error: {e}")
 
@@ -181,22 +250,20 @@ def main() -> None:
         for r in repos:
             r["default_branch"] = source_branch_override
 
-    filter_path = rule["filter"]["path"]
     action_path = rule["action"]["path"]
+    filter_cfg = rule["filter"]
 
-    filter_items = [(r["owner"], r["repo"], r["default_branch"], filter_path) for r in repos]
-    filter_fetched_raw = github_client.fetch_files_batch(filter_items)
-    filter_fetched = {(o, r): text for (o, r, _p), text in filter_fetched_raw.items()}
-
-    matched = filters.apply_filter(rule["filter"], repos, filter_fetched)
+    matched = resolve_filter_matches(filter_cfg, repos)
     matched_keys = {(o, r) for o, r, _b in matched}
 
-    if action_path == filter_path:
-        action_fetched = filter_fetched
-    else:
-        action_items = [(o, r, b, action_path) for o, r, b in matched]
-        action_fetched_raw = github_client.fetch_files_batch(action_items)
-        action_fetched = {(o, r): text for (o, r, _p), text in action_fetched_raw.items()}
+    # Fetched fresh against just the (already-narrowed) matched set, rather
+    # than reused from the filter stage -- with all_of / pr_open_on_branch
+    # filters there isn't always a single well-defined "filter_path" to reuse
+    # from, and refetching only for matched repos is no more expensive than
+    # the old reuse path was for the common single-content-filter case.
+    action_items = [(o, r, b, action_path) for o, r, b in matched]
+    action_fetched_raw = github_client.fetch_files_batch(action_items)
+    action_fetched = {(o, r): text for (o, r, _p), text in action_fetched_raw.items()}
 
     rows: list[dict] = []
     for row in repos:
@@ -204,13 +271,14 @@ def main() -> None:
         if key not in matched_keys:
             rows.append(make_row(row["owner"], row["repo"], False, "not_run", "", "", "not_matched"))
 
-    print(f"{len(matched)}/{len(repos)} repos matched filter '{rule['filter']['type']}' on {filter_path}")
+    print(f"{len(matched)}/{len(repos)} repos matched filter: {describe_filter(filter_cfg)}")
 
     if args.dry_run:
         for owner, repo, branch in matched:
             before = action_fetched.get((owner, repo))
+            action_cfg = render_action_context(rule["action"], owner, repo, branch, rule["branch"])
             try:
-                after = actions.run_action(rule["action"], before)
+                after = actions.run_action(action_cfg, before)
             except actions.ActionError as e:
                 rows.append(make_row(owner, repo, True, "not_run", rule["branch"], "", f"action_error: {e}"))
                 print(f"[{owner}/{repo}] action_error: {e}")

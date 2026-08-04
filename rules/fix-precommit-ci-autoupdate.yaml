@@ -1,0 +1,29 @@
+name: fix-precommit-ci-autoupdate
+filter:
+  type: content_match
+  path: .pre-commit-config.yaml
+  # matches the two-line ci: block regardless of exact indentation
+  pattern: "autoupdate_branch:\\s*develop\\s*\\n\\s*autoupdate_schedule:\\s*monthly"
+action:
+  type: regex_replace
+  path: .pre-commit-config.yaml
+  pattern: "autoupdate_branch:\\s*develop(\\s*\\n\\s*)autoupdate_schedule:\\s*monthly"
+  # {{ default_branch }} is resolved per repo at run time (each repo's own
+  # config/repos.csv default_branch column, or the rule-level source_branch
+  # override if set) -- NOT a literal string shared across every repo.
+  replacement: "autoupdate_branch: {{ default_branch }}\\1autoupdate_schedule: quarterly"
+  require_match: true
+# Reuses this branch/PR if one is already open for it (e.g. from an earlier,
+# related rule run against the same repos) -- runner.py's branch-exists path
+# amends the existing branch and existing open PR instead of erroring or
+# duplicating; if no such branch/PR exists yet for a repo, it creates both
+# fresh, same as any other rule.
+branch: DEVOPS-XXXX
+commit_message: "ci: track default branch for pre-commit.ci autoupdate, switch to quarterly"
+pr:
+  title: "pre-commit.ci: track default branch + quarterly autoupdate"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Updates the ci: block in .pre-commit-config.yaml so autoupdate_branch
+    tracks this repo's actual default branch (instead of a hardcoded
+    'develop') and autoupdate_schedule moves from monthly to quarterly.

@@ -1,0 +1,33 @@
+name: fix-precommit-ci-for-open-devops-branch
+filter:
+  # Two sequential stages: narrow to repos with an open PR on DEVOPS-XXXX
+  # first (cheap), then only check .pre-commit-config.yaml content on that
+  # already-narrowed set (skips the content fetch entirely for every repo
+  # that isn't in that PR wave). Unlike fix-precommit-ci-autoupdate.yaml,
+  # this variant deliberately never touches repos that aren't already part
+  # of that DEVOPS-XXXX effort.
+  type: all_of
+  filters:
+    - type: pr_open_on_branch
+      branch: DEVOPS-XXXX
+    - type: content_match
+      path: .pre-commit-config.yaml
+      pattern: "autoupdate_branch:\\s*develop\\s*\\n\\s*autoupdate_schedule:\\s*monthly"
+action:
+  type: regex_replace
+  path: .pre-commit-config.yaml
+  pattern: "autoupdate_branch:\\s*develop(\\s*\\n\\s*)autoupdate_schedule:\\s*monthly"
+  replacement: "autoupdate_branch: {{ default_branch }}\\1autoupdate_schedule: quarterly"
+  # safe to require a match now -- the filter already guarantees the old
+  # block is present, so a mismatch here would mean a genuine bug, not a
+  # normal "already applied" case.
+  require_match: true
+branch: DEVOPS-XXXX
+commit_message: "ci: track default branch for pre-commit.ci autoupdate, switch to quarterly"
+pr:
+  title: "pre-commit.ci: track default branch + quarterly autoupdate"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Same fix as fix-precommit-ci-autoupdate.yaml, but scoped to only repos
+    that already have an open PR on DEVOPS-XXXX -- lands as an additional
+    commit on that PR instead of sweeping every repo in the inventory.

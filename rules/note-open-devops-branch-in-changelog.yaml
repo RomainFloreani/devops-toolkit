@@ -1,0 +1,29 @@
+name: note-open-devops-branch-in-changelog
+filter:
+  # Not a file-content filter: matches repos that already have an open PR
+  # whose head is this branch (e.g. left open by an earlier, related rule
+  # run against the same repos) -- independent of any file's current state.
+  type: pr_open_on_branch
+  branch: DEVOPS-XXXX
+action:
+  type: anchor_insert
+  path: CHANGELOG.md
+  anchor_pattern: "^# Changelog"
+  position: after
+  lines:
+    - ""
+    - "## DEVOPS-XXXX"
+    - "- see linked PR for details"
+  skip_if_present: "## DEVOPS-XXXX"
+  require_anchor: true
+# Same branch as the filter -- lands as an additional commit on that already-
+# open PR (runner.py's branch-exists path amends it) rather than opening a
+# second, unrelated PR.
+branch: DEVOPS-XXXX
+commit_message: "docs: note DEVOPS-XXXX in changelog"
+pr:
+  title: "DEVOPS-XXXX"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Adds a changelog entry to every repo that already has an open PR on
+    branch DEVOPS-XXXX, as an additional commit on that same PR.

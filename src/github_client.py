@@ -107,19 +107,21 @@ def gh_graphql(query: str, variables: dict | None = None) -> dict:
     return response.get("data", {})
 
 
-def _rest_call(args: list[str], allow_statuses: tuple[int, ...] = ()) -> subprocess.CompletedProcess:
-    """Run a REST `gh api` call, tolerating specific non-2xx statuses.
+def _rest_call(args: list[str], tolerate_stderr_substrings: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    """Run a REST `gh api` call, tolerating specific expected failures.
 
-    `allow_statuses` lets callers treat e.g. 404/422 as an expected outcome
-    (repo/branch missing, ref already exists) instead of a hard error.
+    `tolerate_stderr_substrings` lets callers treat a known outcome (repo/ref
+    missing, ref/PR already exists) as non-fatal instead of raising, matched
+    against GitHub's actual API error message text (e.g. "Not Found",
+    "already exists") rather than `gh`'s HTTP-status-code formatting, which
+    isn't guaranteed stable across `gh` versions.
     """
     try:
         return run_gh(args, max_retries=MAX_RETRIES_DEFAULT)
     except GhError as e:
-        if allow_statuses and e.stderr:
-            for status in allow_statuses:
-                if f"HTTP {status}" in e.stderr or f"({status})" in e.stderr:
-                    return subprocess.CompletedProcess(args, e.returncode, e.stdout, e.stderr)
+        stderr_lower = (e.stderr or "").lower()
+        if any(s in stderr_lower for s in tolerate_stderr_substrings):
+            return subprocess.CompletedProcess(args, e.returncode, e.stdout, e.stderr)
         raise
 
 
@@ -159,6 +161,42 @@ def fetch_files_batch(
     return results
 
 
+def fetch_open_pr_branches(
+    repo_pairs: list[tuple[str, str]],
+    branch: str,
+    chunk_size: int = CHUNK_SIZE_DEFAULT,
+) -> dict[tuple[str, str], bool]:
+    """Batched check: does each (owner, repo) have an open PR whose head is `branch`?
+
+    Same aliased-query-per-chunk shape as fetch_files_batch, but against
+    pullRequests(headRefName:, states: OPEN) instead of a file blob -- PR
+    state, not file content.
+    """
+    results: dict[tuple[str, str], bool] = {}
+    for start in range(0, len(repo_pairs), chunk_size):
+        chunk = repo_pairs[start:start + chunk_size]
+        var_decls = ["$branch: String!"]
+        query_parts = []
+        variables: dict[str, str] = {"branch": branch}
+        for i, (owner, repo) in enumerate(chunk):
+            alias = f"r{i}"
+            o_var, n_var = f"o{i}", f"n{i}"
+            var_decls.append(f"${o_var}: String!, ${n_var}: String!")
+            variables[o_var] = owner
+            variables[n_var] = repo
+            query_parts.append(
+                f'{alias}: repository(owner: ${o_var}, name: ${n_var}) '
+                f'{{ pullRequests(headRefName: $branch, states: [OPEN], first: 1) {{ totalCount }} }}'
+            )
+        query = f"query({', '.join(var_decls)}) {{ {' '.join(query_parts)} }}"
+        data = gh_graphql(query, variables)
+        for i, (owner, repo) in enumerate(chunk):
+            repo_data = data.get(f"r{i}")
+            count = ((repo_data or {}).get("pullRequests") or {}).get("totalCount", 0)
+            results[(owner, repo)] = count > 0
+    return results
+
+
 def fetch_single_file(owner: str, repo: str, branch: str, path: str) -> str | None:
     """Convenience wrapper around fetch_files_batch for a single file."""
     result = fetch_files_batch([(owner, repo, branch, path)])
@@ -169,7 +207,7 @@ def get_branch_tip_sha(owner: str, repo: str, branch: str) -> str | None:
     """Current commit SHA that `branch` points at, or None if repo/branch is missing."""
     result = _rest_call(
         ["api", f"repos/{owner}/{repo}/git/ref/heads/{branch}", "--jq", ".object.sha"],
-        allow_statuses=(404,),
+        tolerate_stderr_substrings=("not found",),
     )
     if result.returncode != 0:
         return None
@@ -185,7 +223,7 @@ def create_branch(owner: str, repo: str, branch: str, sha: str) -> bool:
             "-f", f"ref=refs/heads/{branch}",
             "-f", f"sha={sha}",
         ],
-        allow_statuses=(422,),
+        tolerate_stderr_substrings=("already exists",),
     )
     if result.returncode != 0:
         if "already exists" in (result.stderr or "").lower():
@@ -271,7 +309,7 @@ def create_pr(owner: str, repo: str, title: str, head: str, base: str, body: str
             "-f", f"body={body}",
             "--jq", ".html_url",
         ],
-        allow_statuses=(422,),
+        tolerate_stderr_substrings=("already exists",),
     )
     if result.returncode != 0:
         if "already exists" in (result.stderr or "").lower():
