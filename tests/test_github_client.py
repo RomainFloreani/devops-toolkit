@@ -70,6 +70,55 @@ def test_get_branch_tip_sha_returns_none_on_not_found(monkeypatch):
     assert sha is None
 
 
+def test_fetch_open_prs_by_branch_returns_head_sha_and_none_when_absent(monkeypatch):
+    def fake_run(cmd, input=None, capture_output=None, text=None):
+        assert cmd[:3] == ["gh", "api", "graphql"]
+        body = json.loads(input)
+        variables = body["variables"]
+        assert variables["branch"] == "DEVOPS-1234"
+        data = {}
+        i = 0
+        while f"o{i}" in variables:
+            repo = variables[f"n{i}"]
+            if repo == "repo-a":
+                data[f"r{i}"] = {"pullRequests": {"nodes": [
+                    {"number": 7, "url": "https://github.com/acme/repo-a/pull/7", "headRefOid": "deadbeef"},
+                ]}}
+            else:
+                data[f"r{i}"] = {"pullRequests": {"nodes": []}}
+            i += 1
+        return _FakeCompletedProcess(0, stdout=json.dumps({"data": data}))
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = github_client.fetch_open_prs_by_branch(
+        [("acme", "repo-a"), ("acme", "repo-b")], "DEVOPS-1234",
+    )
+    assert result[("acme", "repo-a")] == {
+        "number": 7, "url": "https://github.com/acme/repo-a/pull/7", "head_sha": "deadbeef",
+    }
+    assert result[("acme", "repo-b")] is None
+
+
+def test_get_check_runs_paginates_until_short_page(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, input=None, capture_output=None, text=None):
+        calls.append(cmd)
+        page_value = next(a.split("=")[1] for a in cmd if a.startswith("page="))
+        if page_value == "1":
+            runs = [{"name": f"job-{i}", "status": "completed", "conclusion": "success", "started_at": "t"}
+                    for i in range(100)]
+        else:
+            runs = [{"name": "job-100", "status": "completed", "conclusion": "success", "started_at": "t"}]
+        stdout = "\n".join(json.dumps(r) for r in runs)
+        return _FakeCompletedProcess(0, stdout=stdout)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runs = github_client.get_check_runs("acme", "repo-a", "deadbeef")
+    assert len(runs) == 101
+    assert [c for c in calls if any(a.startswith("page=") for a in c)]
+
+
 def test_fetch_open_pr_branches_batches_and_parses_totalcount(monkeypatch):
     # simulate: repo-a has an open PR on the branch, repo-b doesn't, repo-c
     # doesn't exist (repository resolves to null).

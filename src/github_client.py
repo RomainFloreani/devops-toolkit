@@ -197,6 +197,73 @@ def fetch_open_pr_branches(
     return results
 
 
+def fetch_open_prs_by_branch(
+    repo_pairs: list[tuple[str, str]],
+    branch: str,
+    chunk_size: int = CHUNK_SIZE_DEFAULT,
+) -> dict[tuple[str, str], dict | None]:
+    """Batched: the open PR (number, url, head sha) whose head is `branch`, per repo.
+
+    Same aliased-query-per-chunk shape as fetch_open_pr_branches, but
+    returning enough (headRefOid) to pull CI results for that PR, not just
+    whether one exists. None where no open PR exists on that branch.
+    """
+    results: dict[tuple[str, str], dict | None] = {}
+    for start in range(0, len(repo_pairs), chunk_size):
+        chunk = repo_pairs[start:start + chunk_size]
+        var_decls = ["$branch: String!"]
+        query_parts = []
+        variables: dict[str, str] = {"branch": branch}
+        for i, (owner, repo) in enumerate(chunk):
+            alias = f"r{i}"
+            o_var, n_var = f"o{i}", f"n{i}"
+            var_decls.append(f"${o_var}: String!, ${n_var}: String!")
+            variables[o_var] = owner
+            variables[n_var] = repo
+            query_parts.append(
+                f'{alias}: repository(owner: ${o_var}, name: ${n_var}) '
+                f'{{ pullRequests(headRefName: $branch, states: [OPEN], first: 1) '
+                f'{{ nodes {{ number url headRefOid }} }} }}'
+            )
+        query = f"query({', '.join(var_decls)}) {{ {' '.join(query_parts)} }}"
+        data = gh_graphql(query, variables)
+        for i, (owner, repo) in enumerate(chunk):
+            repo_data = data.get(f"r{i}")
+            nodes = ((repo_data or {}).get("pullRequests") or {}).get("nodes") or []
+            if nodes:
+                results[(owner, repo)] = {
+                    "number": nodes[0]["number"],
+                    "url": nodes[0]["url"],
+                    "head_sha": nodes[0]["headRefOid"],
+                }
+            else:
+                results[(owner, repo)] = None
+    return results
+
+
+def get_check_runs(owner: str, repo: str, sha: str) -> list[dict]:
+    """All check-runs GitHub has recorded for `sha` (name, status, conclusion, started_at).
+
+    Paginated by hand (100/page) rather than `--jq` over `--paginate`, since
+    the latter would concatenate raw pages instead of merging their
+    `check_runs` arrays.
+    """
+    runs: list[dict] = []
+    page = 1
+    while True:
+        result = _rest_call([
+            "api", f"repos/{owner}/{repo}/commits/{sha}/check-runs",
+            "-f", "per_page=100", "-f", f"page={page}",
+            "--jq", ".check_runs[] | {name, status, conclusion, started_at}",
+        ])
+        page_runs = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+        runs.extend(page_runs)
+        if len(page_runs) < 100:
+            break
+        page += 1
+    return runs
+
+
 def fetch_single_file(owner: str, repo: str, branch: str, path: str) -> str | None:
     """Convenience wrapper around fetch_files_batch for a single file."""
     result = fetch_files_batch([(owner, repo, branch, path)])
