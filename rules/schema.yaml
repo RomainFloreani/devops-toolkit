@@ -134,6 +134,7 @@ definitions:
       - $ref: "#/definitions/action_regex_replace"
       - $ref: "#/definitions/action_anchor_insert"
       - $ref: "#/definitions/action_block_insert"
+      - $ref: "#/definitions/action_fix_line_endings"
 
   action_add_file:
     type: object
@@ -199,3 +200,11 @@ definitions:
         enum: [before, after]
       require_match: { type: boolean }
       skip_if_present: { type: string }
+
+  action_fix_line_endings:
+    type: object
+    additionalProperties: false
+    required: [type, path]
+    properties:
+      type: { const: fix_line_endings }
+      path: { type: string, minLength: 1 }

@@ -47,6 +47,24 @@ def regex_replace(content: str | None, pattern: str, replacement: str, require_m
     return new_content
 
 
+def fix_line_endings(content: str | None) -> str | None:
+    """Forces LF and a single trailing newline, unconditionally.
+
+    Equivalent to mixed-line-ending --fix=lf + end-of-file-fixer combined,
+    not their default --fix=auto behavior -- a file that's already 100% CRLF
+    passes default mixed-line-ending untouched (CRLF is "the dominant"
+    ending in it), which is exactly the gap this closes.
+    """
+    if content is None:
+        return None
+    normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+    if normalized:
+        normalized = normalized.rstrip("\n") + "\n"
+    if normalized == content:
+        return None
+    return normalized
+
+
 def _find_line(lines: list[str], pattern: str, start: int = 0) -> int | None:
     regex = re.compile(pattern)
     for i in range(start, len(lines)):
@@ -129,6 +147,7 @@ ACTIONS = {
     "regex_replace": regex_replace,
     "anchor_insert": anchor_insert,
     "block_insert": block_insert,
+    "fix_line_endings": fix_line_endings,
 }
 
 

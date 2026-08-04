@@ -177,3 +177,38 @@ def test_overwrite_file_changes():
         assert result == "new contents\n"
     finally:
         Path(template_path).unlink()
+
+
+def test_fix_line_endings_normalizes_pure_crlf():
+    # A file that's 100% CRLF is what default mixed-line-ending --fix=auto
+    # leaves untouched (CRLF is "the dominant" ending in it) -- this is the
+    # gap fix_line_endings exists to close.
+    content = "line one\r\nline two\r\n"
+    result = actions.fix_line_endings(content)
+    assert result == "line one\nline two\n"
+
+
+def test_fix_line_endings_normalizes_mixed_and_lone_cr():
+    content = "line one\r\nline two\nline three\rline four\n"
+    result = actions.fix_line_endings(content)
+    assert result == "line one\nline two\nline three\nline four\n"
+
+
+def test_fix_line_endings_adds_missing_trailing_newline():
+    result = actions.fix_line_endings("no trailing newline")
+    assert result == "no trailing newline\n"
+
+
+def test_fix_line_endings_collapses_multiple_trailing_newlines():
+    result = actions.fix_line_endings("content\n\n\n")
+    assert result == "content\n"
+
+
+def test_fix_line_endings_leaves_empty_file_alone():
+    result = actions.fix_line_endings("")
+    assert result is None
+
+
+def test_fix_line_endings_idempotent_when_already_clean():
+    result = actions.fix_line_endings("already: clean\n")
+    assert result is None

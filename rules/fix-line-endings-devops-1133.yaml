@@ -1,0 +1,31 @@
+name: fix-line-endings-devops-1133
+filter:
+  # Scoped only to repos already in the DEVOPS-1133 PR wave -- this is a
+  # follow-up fix for that wave's own output, not a general sweep. No
+  # content_match stage needed: fix_line_endings is idempotent (returns
+  # None on a repo that doesn't need it), and the pr_open_on_branch stage
+  # already narrows the set down to a handful of repos.
+  type: pr_open_on_branch
+  branch: DEVOPS-1133
+action:
+  type: fix_line_endings
+  path: .github/workflows/dependabot-auto-merge.yml
+# Everything (filter reads, the action's "before" content, and the new
+# commit's base tip) reads from DEVOPS-1133 itself, not each repo's default
+# branch -- this file only exists on that branch, added by the same PR wave
+# this rule is fixing up.
+source_branch: DEVOPS-1133
+branch: DEVOPS-1133
+commit_message: "chore: normalize line endings to LF"
+pr:
+  title: "Fix line endings"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Follow-up for the DEVOPS-1133 wave, which ran with --skip-preflight (the
+    full pre-commit suite is too slow to run per-repo here). The repo's own
+    mixed-line-ending hook wouldn't have caught this anyway: its default
+    --fix=auto mode only fixes files with a *mix* of CRLF and LF, and
+    dependabot-auto-merge.yml came out of that wave 100% CRLF, which
+    --fix=auto treats as already-consistent. fix_line_endings forces LF and
+    a single trailing newline unconditionally instead, and lands as one more
+    commit on the same open PR -- no local pre-commit run involved.
