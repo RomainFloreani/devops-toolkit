@@ -65,7 +65,7 @@ Validate against `rules/schema.yaml` implicitly on every run -- `runner.py`
 loads and validates the rule before touching GitHub, and fails fast naming
 the exact bad field if something's off.
 
-Three worked examples ship in `rules/`:
+Worked examples ship in `rules/`, one per filter/action combination:
 
 - **`bump-workflow-v2-to-v3.yaml`** -- `regex_replace`. Swaps a pinned
   version string anywhere it appears on one line.
@@ -77,6 +77,28 @@ Three worked examples ship in `rules/`:
   (`^jobs:`), then the first `end_pattern` match *after* it (the shape of a
   job key, not a specific job name), and inserts relative to that -- never a
   raw line number.
+- **`add-codeowners.yaml`** -- `path_absent` filter + `add_file`. The
+  "create if missing" case; `add_file` refuses to clobber a file the filter
+  didn't already prove was absent.
+- **`sync-editorconfig.yaml`** -- `path_exists` filter + `overwrite_file`.
+  The "force this file to match the canonical version" case for repos that
+  opted in by already having one; `overwrite_file` diffs old vs. new content
+  itself, so a repo already in sync is a no-op.
+- **`add-workflow-permissions-block.yaml`** -- `all_of` combining
+  `path_exists` + `content_absent`, then `anchor_insert` with
+  `position: before`. The `path_exists` stage keeps `content_absent` (which
+  also matches repos missing the file entirely) from feeding a
+  `require_anchor: true` insert that would then hard-fail on those repos.
+- **`add-s3-public-access-block.yaml`** -- `block_insert` with
+  `position: after`. Needs `end_pattern` to match a genuine closing
+  delimiter of the target block (here, a resource's own closing brace at
+  column 0) rather than the start of the next block, or the insert lands
+  inside whatever follows instead of cleanly after it.
+- **`bump-node-engines-lts.yaml`** -- `source_branch` override (targets a
+  shared `develop` branch regardless of each repo's own `default_branch`)
+  plus `regex_replace` with `require_match: false`, for a filter
+  (`path_exists`) too broad to guarantee the action's pattern is actually
+  present in every matched repo.
 
 ## Running
 

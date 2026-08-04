@@ -1,0 +1,26 @@
+name: add-codeowners
+filter:
+  # path_absent: the mirror image of path_exists -- matches repos that do
+  # NOT already have this file. Fleet-wide on purpose (no subset): every repo
+  # missing a CODEOWNERS file is in scope, regardless of team.
+  type: path_absent
+  path: CODEOWNERS
+action:
+  # add_file errors out if the target already exists and `overwrite` isn't
+  # set -- that's a feature, not a gap: it means this rule can never
+  # silently clobber a repo's hand-written CODEOWNERS. The path_absent
+  # filter already guarantees that won't happen here, but the guard stays
+  # even so in case a repo grows one between the filter read and the write.
+  type: add_file
+  path: CODEOWNERS
+  source_template_path: templates/CODEOWNERS.default
+branch: chore/add-codeowners
+commit_message: "chore: add default CODEOWNERS file"
+pr:
+  title: "Add default CODEOWNERS file"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Adds a baseline CODEOWNERS file to every repo that doesn't have one yet.
+    Idempotent because add_file only ever runs against repos the filter
+    proved don't have the file -- a second run against an already-fixed repo
+    simply no longer matches the filter, so nothing is touched.

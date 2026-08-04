@@ -1,0 +1,46 @@
+name: add-s3-public-access-block
+filter:
+  type: content_match
+  path: infra/s3.tf
+  pattern: 'resource\s+"aws_s3_bucket"\s+"artifacts"'
+subset:
+  column: team
+  equals: platform
+action:
+  # block_insert, but position: after -- add-security-scan-job.yaml only
+  # showed "before". The two positions need different kinds of end_pattern:
+  # "before" (there) anchored on the *start* of the next sibling block, so
+  # the insert lands ahead of it. "after" needs end_pattern to match a real
+  # *closing* delimiter of the target block, or the insert lands inside
+  # whatever comes next instead of cleanly after it. Here that's the
+  # resource's own closing brace: anchored at column 0 (`^\}`), which the
+  # bucket's own nested attribute blocks (e.g. `tags = { ... }`) never
+  # match since those are indented -- so this is guaranteed to be the
+  # top-level closing brace of the `artifacts` resource itself, not some
+  # brace nested inside it.
+  type: block_insert
+  path: infra/s3.tf
+  start_pattern: 'resource\s+"aws_s3_bucket"\s+"artifacts"\s*\{'
+  end_pattern: '^\}'
+  position: after
+  lines:
+    - ""
+    - 'resource "aws_s3_bucket_public_access_block" "artifacts" {'
+    - "  bucket                  = aws_s3_bucket.artifacts.id"
+    - "  block_public_acls       = true"
+    - "  block_public_policy     = true"
+    - "  ignore_public_acls      = true"
+    - "  restrict_public_buckets = true"
+    - "}"
+  skip_if_present: "aws_s3_bucket_public_access_block"
+  require_match: true
+branch: chore/add-s3-public-access-block
+commit_message: "infra: block public access on the artifacts S3 bucket"
+pr:
+  title: "Block public access on the artifacts S3 bucket"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Compliance sweep: every platform-team repo managing the `artifacts` S3
+    bucket gets an explicit aws_s3_bucket_public_access_block resource
+    appended right after it, locking down public access at the bucket
+    level. Idempotent via skip_if_present.

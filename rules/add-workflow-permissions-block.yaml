@@ -1,0 +1,42 @@
+name: add-workflow-permissions-block
+filter:
+  # all_of, but a different pairing than fix-precommit-ci-for-open-devops-
+  # branch.yaml's (pr_open_on_branch + content_match): here both stages read
+  # the same file. path_exists first guarantees the workflow file is there
+  # at all -- content_absent alone would also match repos where the file is
+  # flat-out missing (text is None), and require_anchor: true below would
+  # then hard-fail those repos with an action_error instead of just not
+  # matching them. Narrowing with path_exists first keeps that a clean
+  # "not_matched" instead.
+  type: all_of
+  filters:
+    - type: path_exists
+      path: .github/workflows/ci.yml
+    - type: content_absent
+      path: .github/workflows/ci.yml
+      pattern: "^permissions:"
+action:
+  # position: before (add-lint-step.yaml and note-open-devops-branch-in-
+  # changelog.yaml both used "after"). A top-level `permissions:` key has to
+  # land at column 0, as a sibling of `jobs:` -- inserting it immediately
+  # before the `jobs:` line is the natural anchor, since every workflow file
+  # has one and it's always a stable, unambiguous marker.
+  type: anchor_insert
+  path: .github/workflows/ci.yml
+  anchor_pattern: "^jobs:"
+  position: before
+  lines:
+    - "permissions:"
+    - "  contents: read"
+    - ""
+  skip_if_present: "permissions:"
+  require_anchor: true
+branch: chore/add-workflow-permissions
+commit_message: "ci: add minimal top-level permissions block"
+pr:
+  title: "Add minimal permissions block to CI workflow"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Security baseline: pins the default GITHUB_TOKEN down to read-only
+    (contents: read) in every workflow file that doesn't already declare a
+    top-level permissions block. Idempotent via skip_if_present.

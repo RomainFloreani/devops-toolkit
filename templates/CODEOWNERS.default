@@ -1,0 +1,4 @@
+# Default code owners -- override with more specific rules below as a repo
+# needs them. Deliberately broad: this file only lands in repos that don't
+# already have one.
+* @example-org/platform-team

@@ -1,0 +1,44 @@
+name: bump-node-engines-lts
+filter:
+  # Deliberately broad: path_exists only, not content_match against the old
+  # pin. The data team's repos don't all pin engines.node the same way (some
+  # don't pin it at all, some already moved on) -- narrowing the filter to
+  # an exact old-pin pattern would just mean re-deriving that same pattern
+  # twice and keeping the two copies in sync. Instead every repo with a
+  # package.json is in scope, and require_match: false below lets the ones
+  # that don't actually have the old pin fall through as no_change_needed
+  # rather than failing.
+  type: path_exists
+  path: package.json
+subset:
+  # First rule in this set to use a subset value other than "platform".
+  column: team
+  equals: data
+# The data team runs a shared `develop` integration branch for this kind of
+# fleet-wide bump instead of each repo's own default_branch (service-c's is
+# `master`, service-d has none set) -- source_branch overrides
+# config/repos.csv's default_branch column for every repo in this run: the
+# filter read above, the new branch's base tip, and the PR base all target
+# `develop` instead.
+source_branch: develop
+action:
+  type: regex_replace
+  path: package.json
+  pattern: '"node":\s*"\^?18[^"]*"'
+  replacement: '"node": ">=20"'
+  # Unlike every other regex_replace rule in this set, the filter here
+  # doesn't already guarantee this pattern is present (it only checked
+  # path_exists) -- so a mismatch is a normal "this repo doesn't have the
+  # old pin" case, not a bug. require_match: false turns that into a clean
+  # no_change_needed instead of an action_error.
+  require_match: false
+branch: chore/bump-node-engines-20
+commit_message: "chore: bump node engines pin to >=20"
+pr:
+  title: "Bump node engines pin to >=20"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Moves the engines.node pin in package.json from 18.x to >=20 across the
+    data team's repos, landing on the shared develop branch. Repos that
+    don't pin node 18 (already current, or don't pin it at all) are a
+    no-op.

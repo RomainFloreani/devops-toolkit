@@ -1,0 +1,28 @@
+name: sync-editorconfig
+filter:
+  # Deliberately the opposite scoping from add-codeowners.yaml: only touch
+  # repos that already have an .editorconfig (path_exists), and force its
+  # content to the org-standard version below. Repos with none are left
+  # alone -- adopting an .editorconfig is an opt-in decision, not something
+  # this rule should make for a repo.
+  type: path_exists
+  path: .editorconfig
+action:
+  # overwrite_file replaces the whole file unconditionally (no anchors, no
+  # pattern matching) -- the right tool when the canonical version is small
+  # and short enough that "just replace it" beats patching pieces of it.
+  # Still idempotent: actions.py diffs old vs. new content itself and
+  # returns None (no_change_needed) when a repo's file already matches.
+  type: overwrite_file
+  path: .editorconfig
+  source_template_path: templates/editorconfig.default
+branch: chore/sync-editorconfig
+commit_message: "chore: sync .editorconfig to org standard"
+pr:
+  title: "Sync .editorconfig to org standard"
+  body_template: templates/pr_body.md.j2
+  description: >
+    Overwrites .editorconfig with the current org-standard version in
+    repos that already opted in to having one. Re-running this rule after
+    the org standard changes again picks up the new version automatically;
+    running it unchanged against an already-synced repo is a no-op.
