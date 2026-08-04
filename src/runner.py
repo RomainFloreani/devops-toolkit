@@ -176,6 +176,11 @@ def main() -> None:
     repos = load_repos(Path(args.repos_csv))
     repos = apply_subset(repos, rule.get("subset"))
 
+    source_branch_override = rule.get("source_branch")
+    if source_branch_override:
+        for r in repos:
+            r["default_branch"] = source_branch_override
+
     filter_path = rule["filter"]["path"]
     action_path = rule["action"]["path"]
 

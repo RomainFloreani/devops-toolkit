@@ -47,6 +47,13 @@ A rule is one YAML file under `rules/`. It has five parts:
   `content_match` / `content_absent`, evaluated against one file's content.
 - `subset` (optional): narrow further by a `config/repos.csv` column, e.g.
   only `team: platform` repos.
+- `source_branch` (optional): overrides `config/repos.csv`'s `default_branch`
+  column for every repo in this rule's run -- filter reads, the new branch's
+  base tip, and the PR base all use this branch name instead. Omit to use
+  each repo's own `default_branch` column (the normal case; different repos
+  can each have their own value there). Set this when one campaign needs to
+  target e.g. `develop` or `release/x` for every repo regardless of what
+  their individual `default_branch` is.
 - `action`: how to compute the new file content. See the three examples
   below -- pick the narrowest one that fits, and always set a
   `skip_if_present` / `require_match` guard so a second run is a no-op.

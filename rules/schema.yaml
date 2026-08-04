@@ -26,6 +26,14 @@ properties:
         type: string
   action:
     $ref: "#/definitions/action"
+  source_branch:
+    type: string
+    minLength: 1
+    description: >
+      Overrides config/repos.csv's default_branch for every repo in this
+      rule's run: filter reads, the new branch's base tip, and the PR base
+      all use this branch name instead. Omit to use each repo's own
+      default_branch column.
   branch:
     type: string
     minLength: 1
